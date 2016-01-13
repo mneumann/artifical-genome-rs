@@ -1,0 +1,10 @@
+[package]
+name = "artificial-genome"
+version = "0.0.1"
+authors = ["Michael Neumann <mneumann@ntecs.de>"]
+license = "MIT"
+repository = "https://github.com/mneumann/artificial-genome-rs"
+description = "Reil's Artificial Genome"
+keywords = ["biology"]
+
+[dependencies]
