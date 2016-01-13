@@ -46,7 +46,6 @@ impl<'a, B: Base + 'a> Gene<'a, B> {
 }
 
 pub struct GeneIterator<'a, 'b, B: Base + 'a + 'b> {
-    start_pos: usize,
     // Genes have fixed length
     length_of_gene: usize,
     sequence: &'a [B],
@@ -57,11 +56,9 @@ impl<'a, 'b, B: Base + 'a + 'b> Iterator for GeneIterator<'a, 'b, B> {
     type Item = Gene<'a, B>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match locate_substr(&self.sequence[self.start_pos..], self.promoter) {
+        match locate_substr(self.sequence, self.promoter) {
             Some(pos) => {
-                let reg_start = self.start_pos;
-                let reg_end = reg_start + pos;
-                let gene_start = reg_end + self.promoter.len();
+                let gene_start = pos + self.promoter.len();
                 let gene_end = gene_start + self.length_of_gene;
 
                 // gene is not complete
@@ -70,10 +67,10 @@ impl<'a, 'b, B: Base + 'a + 'b> Iterator for GeneIterator<'a, 'b, B> {
                 }
 
                 let gene = Gene {
-                    regulatory_region: &self.sequence[reg_start..reg_end],
+                    regulatory_region: &self.sequence[..pos],
                     gene: &self.sequence[gene_start..gene_end],
                 };
-                self.start_pos = gene_end;
+                self.sequence = &self.sequence[gene_end..];
                 return Some(gene);
             }
             None => {
@@ -95,7 +92,6 @@ impl<B: Base> Genome<B> {
                               length_of_gene: usize)
                               -> GeneIterator<'a, 'b, B> {
         GeneIterator {
-            start_pos: 0,
             length_of_gene: length_of_gene,
             sequence: &self.genome,
             promoter: promoter,
