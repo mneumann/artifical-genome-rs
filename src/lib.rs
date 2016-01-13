@@ -12,16 +12,16 @@ pub trait Base: Sized + PartialEq + Eq + Copy + Clone {
     fn from_char(c: char) -> Option<Self>;
 }
 
-fn locate_promoter<'a, T: Eq>(s: &'a [T], promoter: &[T]) -> Option<usize> {
-    let plen = promoter.len();
-    assert!(plen > 0);
+// Locate ```substr``` in ```s```.
+fn locate_substr<T: Eq>(s: &[T], substr: &[T]) -> Option<usize> {
+    assert!(substr.len() > 0);
 
-    if s.len() < plen {
+    if s.len() < substr.len() {
         return None;
     }
 
-    for (i, window) in s.windows(plen).enumerate() {
-        if window == promoter {
+    for (i, window) in s.windows(substr.len()).enumerate() {
+        if window == substr {
             return Some(i);
         }
     }
@@ -41,13 +41,7 @@ impl<'a, B: Base + 'a> Gene<'a, B> {
     }
 
     pub fn find_product_in_regulatory_region(&self, product: &[B]) -> bool {
-        assert!(product.len() > 0);
-        for window in self.regulatory_region.windows(product.len()) {
-            if window == product {
-                return true;
-            }
-        }
-        return false;
+        locate_substr(self.regulatory_region, product).is_some()
     }
 }
 
@@ -63,7 +57,7 @@ impl<'a, 'b, B: Base + 'a + 'b> Iterator for GeneIterator<'a, 'b, B> {
     type Item = Gene<'a, B>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match locate_promoter(&self.sequence[self.start_pos..], self.promoter) {
+        match locate_substr(&self.sequence[self.start_pos..], self.promoter) {
             Some(pos) => {
                 let reg_start = self.start_pos;
                 let reg_end = reg_start + pos;
