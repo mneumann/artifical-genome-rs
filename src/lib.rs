@@ -19,10 +19,10 @@ pub enum DNABase {
 impl Base for DNABase {
     fn next(self) -> Self {
         match self {
-            A => T,
-            T => G,
-            G => C,
-            C => A
+            DNABase::A => DNABase::T,
+            DNABase::T => DNABase::G,
+            DNABase::G => DNABase::C,
+            DNABase::C => DNABase::A
         }
     }
 }
