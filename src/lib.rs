@@ -1,30 +1,15 @@
+pub mod dna_base;
+pub mod base4;
+
 /// Represents the bases used in the genome string.
 /// For example the bases of the DNA are adenine (A),
 /// thymine (T), guanine (G) and cytosine (C).
-pub trait Base: Sized + PartialEq + Eq {
-    /// Returns the "next" base, wrapping around. Used
+pub trait Base: Sized + PartialEq + Eq + Copy + Clone {
+    /// Returns the "successor" base, wrapping around. Used
     /// to produce the gene product.
-    fn next(self) -> Self;
-}
+    fn succ(self) -> Self;
 
-#[derive(Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum DNABase {
-    A,
-    T,
-    G,
-    C,
-}
-
-impl Base for DNABase {
-    fn next(self) -> Self {
-        match self {
-            DNABase::A => DNABase::T,
-            DNABase::T => DNABase::G,
-            DNABase::G => DNABase::C,
-            DNABase::C => DNABase::A,
-        }
-    }
+    fn from_char(c: char) -> Option<Self>;
 }
 
 fn locate_promoter<'a, T: Eq>(s: &'a [T], promoter: &[T]) -> Option<usize> {
@@ -50,11 +35,27 @@ pub struct Gene<'a, B: Base + 'a> {
     pub gene: &'a [B],
 }
 
+impl<'a, B: Base + 'a> Gene<'a, B> {
+    pub fn gene_product(&self) -> Vec<B> {
+        self.gene.iter().map(|b| b.succ()).collect()
+    }
+
+    pub fn find_product_in_regulatory_region(&self, product: &[B]) -> bool {
+        assert!(product.len() > 0);
+        for window in self.regulatory_region.windows(product.len()) {
+            if window == product {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
 pub struct GeneIterator<'a, 'b, B: Base + 'a + 'b> {
     start_pos: usize,
     // Genes have fixed length
     length_of_gene: usize,
-    genome: &'a [B],
+    sequence: &'a [B],
     promoter: &'b [B],
 }
 
@@ -62,7 +63,7 @@ impl<'a, 'b, B: Base + 'a + 'b> Iterator for GeneIterator<'a, 'b, B> {
     type Item = Gene<'a, B>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match locate_promoter(&self.genome[self.start_pos..], self.promoter) {
+        match locate_promoter(&self.sequence[self.start_pos..], self.promoter) {
             Some(pos) => {
                 let reg_start = self.start_pos;
                 let reg_end = reg_start + pos;
@@ -70,13 +71,13 @@ impl<'a, 'b, B: Base + 'a + 'b> Iterator for GeneIterator<'a, 'b, B> {
                 let gene_end = gene_start + self.length_of_gene;
 
                 // gene is not complete
-                if gene_end > self.genome.len() {
+                if gene_end > self.sequence.len() {
                     return None;
                 }
 
                 let gene = Gene {
-                    regulatory_region: &self.genome[reg_start..reg_end],
-                    gene: &self.genome[gene_start..gene_end],
+                    regulatory_region: &self.sequence[reg_start..reg_end],
+                    gene: &self.sequence[gene_start..gene_end],
                 };
                 self.start_pos = gene_end;
                 return Some(gene);
@@ -102,13 +103,8 @@ impl<B: Base> Genome<B> {
         GeneIterator {
             start_pos: 0,
             length_of_gene: length_of_gene,
-            genome: &self.genome,
+            sequence: &self.genome,
             promoter: promoter,
         }
     }
-}
-
-#[test]
-fn test_dnabase_next() {
-    assert_eq!(DNABase::A, DNABase::C.next());
 }
