@@ -27,54 +27,62 @@ impl Base for DNABase {
     }
 }
 
-pub struct GenomeSlicer<'a, 'b, B: Base + 'a + 'b> {
-    start_pos: usize,
-    current: &'a [B],
-    promoter: &'b [B],
-}
-
-fn split_slice_at_promoter<'a, T: Eq>(s: &'a [T],
-                                      start_pos: usize,
-                                      promoter: &[T])
-                                      -> (&'a [T], Option<usize>) {
+fn locate_promoter<'a, T: Eq>(s: &'a [T], promoter: &[T]) -> Option<usize> {
     let plen = promoter.len();
     assert!(plen > 0);
 
-    if start_pos >= s.len() {
-        return (&s[0..0], None);
+    if s.len() < plen {
+        return None;
     }
 
-    let s = &s[start_pos..];
     for (i, window) in s.windows(plen).enumerate() {
         if window == promoter {
-            return (&s[..i], Some(start_pos + i + plen));
+            return Some(i);
         }
     }
 
-    return (s, None);
+    return None;
 }
 
+#[derive(Debug)]
+pub struct Gene<'a, B: Base + 'a> {
+    pub regulatory_region: &'a [B],
+    pub gene: &'a [B],
+}
 
-// cuts the genome into slices
-impl<'a, 'b, B: Base + 'a + 'b> Iterator for GenomeSlicer<'a, 'b, B> {
-    type Item = &'a [B];
+pub struct GeneIterator<'a, 'b, B: Base + 'a + 'b> {
+    start_pos: usize,
+    // Genes have fixed length
+    length_of_gene: usize,
+    genome: &'a [B],
+    promoter: &'b [B],
+}
+
+impl<'a, 'b, B: Base + 'a + 'b> Iterator for GeneIterator<'a, 'b, B> {
+    type Item = Gene<'a, B>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match split_slice_at_promoter(self.current, self.start_pos, self.promoter) {
-                (s, None) => {
-                    if s.is_empty() {
-                        return None;
-                    }
-                    self.start_pos = self.current.len();
-                    return Some(s);
+        match locate_promoter(&self.genome[self.start_pos..], self.promoter) {
+            Some(pos) => {
+                let reg_start = self.start_pos;
+                let reg_end = reg_start + pos;
+                let gene_start = reg_end + self.promoter.len();
+                let gene_end = gene_start + self.length_of_gene;
+
+                // gene is not complete
+                if gene_end > self.genome.len() {
+                    return None;
                 }
-                (s, Some(next_pos)) => {
-                    self.start_pos = next_pos;
-                    if s.len() > 0 {
-                        return Some(s);
-                    }
-                }
+
+                let gene = Gene {
+                    regulatory_region: &self.genome[reg_start..reg_end],
+                    gene: &self.genome[gene_start..gene_end],
+                };
+                self.start_pos = gene_end;
+                return Some(gene);
+            }
+            None => {
+                return None;
             }
         }
     }
@@ -87,10 +95,14 @@ pub struct Genome<B: Base> {
 
 // Convert genome into sections, i.e. Split at the promoter.
 impl<B: Base> Genome<B> {
-    pub fn slices<'a, 'b>(&'a self, promoter: &'b [B]) -> GenomeSlicer<'a, 'b, B> {
-        GenomeSlicer {
+    pub fn iter_genes<'a, 'b>(&'a self,
+                              promoter: &'b [B],
+                              length_of_gene: usize)
+                              -> GeneIterator<'a, 'b, B> {
+        GeneIterator {
             start_pos: 0,
-            current: &self.genome,
+            length_of_gene: length_of_gene,
+            genome: &self.genome,
             promoter: promoter,
         }
     }
