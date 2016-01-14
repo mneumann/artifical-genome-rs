@@ -33,6 +33,21 @@ fn locate_substr<T: Eq>(s: &[T], substr: &[T]) -> Option<usize> {
     return None;
 }
 
+// Count occurrence of ```substr``` in ```s```.
+fn count_substr<T: Eq>(s: &[T], substr: &[T]) -> usize {
+    assert!(substr.len() > 0);
+
+    let mut cnt = 0;
+    for window in s.windows(substr.len()) {
+        if window == substr {
+            cnt += 1;
+        }
+    }
+
+    return cnt;
+}
+
+
 #[derive(Debug)]
 pub struct Gene<'a, B: Base + 'a> {
     pub regulatory_region: &'a [B],
@@ -40,12 +55,16 @@ pub struct Gene<'a, B: Base + 'a> {
 }
 
 impl<'a, B: Base + 'a> Gene<'a, B> {
-    pub fn gene_product(&self) -> Vec<B> {
-        self.gene.iter().map(|b| b.succ()).collect()
+    /// The gene product
+    pub fn product(&self) -> BaseString<B> {
+        BaseString { v: self.gene.iter().map(|b| b.succ()).collect() }
     }
 
     pub fn find_product_in_regulatory_region(&self, product: &[B]) -> bool {
         locate_substr(self.regulatory_region, product).is_some()
+    }
+    pub fn count_product_in_regulatory_region(&self, product: &[B]) -> usize {
+        count_substr(self.regulatory_region, product)
     }
 }
 
@@ -88,6 +107,20 @@ pub struct BaseString<B: Base> {
     v: Vec<B>,
 }
 
+// A positive value enhances, a negative inhibits the expression of a gene.
+#[derive(Debug)]
+pub struct ProteinRegulator(i32);
+
+impl ProteinRegulator {
+    pub fn enhance() -> ProteinRegulator {
+        ProteinRegulator(1)
+    }
+
+    pub fn inhibit() -> ProteinRegulator {
+        ProteinRegulator(-1)
+    }
+}
+
 impl<B: Base> FromStr for BaseString<B> {
     type Err = ();
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -118,6 +151,51 @@ pub struct Genome<B: Base> {
     genome: BaseString<B>,
 }
 
+#[derive(Debug)]
+struct Edge {
+    src: usize,
+    weight: ProteinRegulator,
+}
+
+#[derive(Debug)]
+struct Node<N: fmt::Debug + Eq> {
+    name: Option<N>,
+    edges: Vec<Edge>,
+}
+
+impl<N: fmt::Debug + Eq> Node<N> {
+    fn new() -> Node<N> {
+        Node {
+            name: None,
+            edges: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct GeneNetwork<N: fmt::Debug + Eq> {
+    nodes: Vec<Node<N>>,
+}
+
+impl<N: fmt::Debug + Eq> GeneNetwork<N> {
+    fn new(num_nodes: usize) -> GeneNetwork<N> {
+        GeneNetwork { nodes: (0..num_nodes).map(|_| Node::new()).collect() }
+    }
+
+    fn set_node_name(&mut self, node_id: usize, name: N) {
+        assert!(node_id < self.nodes.len());
+        self.nodes[node_id].name = Some(name);
+    }
+    fn add_edge(&mut self, src: usize, dst: usize, weight: ProteinRegulator) {
+        assert!(src < self.nodes.len());
+        assert!(dst < self.nodes.len());
+        self.nodes[dst].edges.push(Edge {
+            src: src,
+            weight: weight,
+        });
+    }
+}
+
 // Convert genome into sections, i.e. Split at the promoter.
 impl<B: Base> Genome<B> {
     pub fn iter_genes<'a, 'b>(&'a self,
@@ -129,6 +207,48 @@ impl<B: Base> Genome<B> {
             sequence: &self.genome,
             promoter: promoter,
         }
+    }
+
+    // Construct a dependency network between the genes
+    // * need a fn that determines if the gene product is supressing or depressing
+    // * need a map function that maps the gene to a "name" (or operation).
+    pub fn construct_network<R, F, N>(&self,
+                                      promoter: &[B],
+                                      length_of_gene: usize,
+                                      protein_regulation: &R,
+                                      gene_namer: &F)
+                                      -> GeneNetwork<N>
+        where R: Fn(&[B]) -> ProteinRegulator,
+              F: Fn(&[B]) -> N,
+              N: fmt::Debug + Eq
+    {
+        let genes: Vec<_> = self.iter_genes(promoter, length_of_gene).collect();
+        let num_genes = genes.len();
+
+        // each gene is a node in the boolean network
+        let mut network = GeneNetwork::new(num_genes);
+
+        for (src, gene) in genes.iter().enumerate() {
+            network.set_node_name(src, gene_namer(gene.gene));
+
+            let product = gene.product();
+            // A gene product either enhances (> 0) or inyhibits (< 0) the expression of
+            // another gene.
+            let regulator = protein_regulation(&product);
+
+            // determine which other genes ```gene``` regulates
+            for (dst, gene2) in genes.iter().enumerate() {
+                // a gene does not regulate itself
+                if src != dst {
+                    let factor = gene2.count_product_in_regulatory_region(&product);
+                    if factor > 0 {
+                        network.add_edge(src, dst, ProteinRegulator(regulator.0 * factor as i32));
+                    }
+                }
+            }
+        }
+
+        return network;
     }
 }
 
