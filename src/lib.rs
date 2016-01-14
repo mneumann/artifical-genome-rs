@@ -1,10 +1,14 @@
 pub mod dna_base;
 pub mod base4;
 
+use std::str::FromStr;
+use std::ops::Deref;
+use std::fmt;
+
 /// Represents the bases used in the genome string.
 /// For example the bases of the DNA are adenine (A),
 /// thymine (T), guanine (G) and cytosine (C).
-pub trait Base: Sized + PartialEq + Eq + Copy + Clone {
+pub trait Base: Sized + PartialEq + Eq + Copy + Clone + fmt::Debug {
     /// Returns the "successor" base, wrapping around. Used
     /// to produce the gene product.
     fn succ(self) -> Self;
@@ -80,9 +84,38 @@ impl<'a, 'b, B: Base + 'a + 'b> Iterator for GeneIterator<'a, 'b, B> {
     }
 }
 
+pub struct BaseString<B: Base> {
+    v: Vec<B>,
+}
+
+impl<B: Base> FromStr for BaseString<B> {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(BaseString { v: s.chars().filter_map(|c| B::from_char(c)).collect() })
+    }
+}
+
+impl<B: Base> Deref for BaseString<B> {
+    type Target = [B];
+
+    fn deref(&self) -> &Self::Target {
+        &self.v
+    }
+}
+
+impl<B: Base> fmt::Debug for BaseString<B> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        try!(write!(f, "["));
+        for base in &self.v {
+            try!(write!(f, "{:?}", base));
+        }
+        write!(f, "]")
+    }
+}
+
 /// A Genome is a string of Base
 pub struct Genome<B: Base> {
-    pub genome: Vec<B>,
+    genome: BaseString<B>,
 }
 
 // Convert genome into sections, i.e. Split at the promoter.
@@ -96,5 +129,12 @@ impl<B: Base> Genome<B> {
             sequence: &self.genome,
             promoter: promoter,
         }
+    }
+}
+
+impl<B: Base> FromStr for Genome<B> {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        FromStr::from_str(s).map(|bs| Genome { genome: bs })
     }
 }
