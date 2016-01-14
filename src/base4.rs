@@ -4,6 +4,11 @@ use std::fmt;
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub struct Base4(u8);
 
+pub const B0: Base4 = Base4(0);
+pub const B1: Base4 = Base4(1);
+pub const B2: Base4 = Base4(2);
+pub const B3: Base4 = Base4(3);
+
 impl fmt::Debug for Base4 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
