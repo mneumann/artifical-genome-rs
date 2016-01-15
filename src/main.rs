@@ -16,18 +16,25 @@ struct Edge {
     src_node: usize,
     dst_node: usize,
     length: f32,
+
+    // there is a structural node, and each time it is activated,
+    // this count is increased.
+    type_count: usize,
+
     // Every edge has it's own regulatory network state embedded.
     network_state: GeneNetworkState,
 }
 
-impl Edge {
-    fn develop(&mut self,
-               network: &GeneNetwork,
-               next_node_id: &mut usize,
-               new_edges: &mut Vec<Edge>) {
-        // first perform the state transition.
-        // for each node, iterate over all incoming edges. sum
+const EDGE_DIFFERENTIATION: usize = 0;
+const EDGE_SPLIT: usize = 1;
+const EDGE_DUPLICATE: usize = 2;
+const EDGE_SWAP: usize = 3;
+const EDGE_GROW: usize = 4;
+const EDGE_SHRINK: usize = 5;
+const EDGE_TYPE: usize = 6;
 
+impl Edge {
+    fn transition_state(&mut self, network: &GeneNetwork) {
         // create an empty new state.
         let mut new_state = network.new_state();
 
@@ -38,71 +45,74 @@ impl Edge {
                 new_state.state.insert(i);
             }
         }
-
-        println!("previous state: {:?}", self.network_state);
         self.network_state = new_state;
-        println!("new state: {:?}", self.network_state);
+    }
 
-        // perform the actions of all active nodes in the gene network. then transition the network to
-        // the next state.
+    fn develop(&mut self,
+               network: &GeneNetwork,
+               next_node_id: &mut usize,
+               new_edges: &mut Vec<Edge>) {
 
-        // first node is used for differentiation. in a split/duplicate node, this
-        // will be set 0 or 1 in the children.
+        // first perform the state transition.
+        self.transition_state(network);
+
+        // perform the actions of all active nodes in the gene network.
+
+        // first node is used for differentiation.
+        // in a split/duplicate node, this will be set 0 or 1 in the children.
         // starting from second node, the nodes are mapped to graph grammar rules.
 
-        // fixed map from node-id to graph rule. first node is used for differentiation
-        // of the edges when a new edge is created.
-        //
-
-        if self.network_state.state.contains(1) {
-            // GraphGrammar::Split
+        if self.network_state.state.contains(EDGE_SPLIT) {
             let new_node = *next_node_id;
             *next_node_id += 1;
 
             // differentiate
             let mut child_state = self.network_state.clone();
-            child_state.state.set(0, !self.network_state.state.contains(0));
+            child_state.state.set(EDGE_DIFFERENTIATION,
+                                  !self.network_state.state.contains(EDGE_DIFFERENTIATION));
 
             let new_edge = Edge {
                 src_node: new_node,
                 dst_node: self.dst_node,
                 length: 0.5 * self.length,
                 network_state: child_state,
+                type_count: self.type_count, /* XXX: start with 0 or with the count of the current edge? */
             };
             self.dst_node = new_node;
-            self.length *= 0.5;
+            self.length /= 2.0;
             new_edges.push(new_edge);
         }
 
-        if self.network_state.state.contains(2) {
-            // GraphGrammar::Duplicate
-
+        if self.network_state.state.contains(EDGE_DUPLICATE) {
             // differentiate
             let mut child_state = self.network_state.clone();
-            child_state.state.set(0, !self.network_state.state.contains(0));
+            child_state.state.set(EDGE_DIFFERENTIATION,
+                                  !self.network_state.state.contains(EDGE_DIFFERENTIATION));
 
             let new_edge = Edge {
-                src_node: self.src_node,
-                dst_node: self.dst_node,
+                src_node: self.dst_node,
+                dst_node: self.src_node,
                 length: self.length,
                 network_state: child_state,
+                type_count: self.type_count, /* XXX: start with 0 or with the count of the current edge? */
             };
             new_edges.push(new_edge);
         }
 
-        if self.network_state.state.contains(3) {
-            // GraphGrammar::Swap
+        if self.network_state.state.contains(EDGE_SWAP) {
             mem::swap(&mut self.dst_node, &mut self.src_node);
         }
 
-        if self.network_state.state.contains(4) {
-            // GraphGrammar::Resize grow
+        if self.network_state.state.contains(EDGE_GROW) {
             self.length *= 1.25;
         }
 
-        if self.network_state.state.contains(5) {
-            // GraphGrammar::Resize shrink
+        if self.network_state.state.contains(EDGE_SHRINK) {
             self.length *= 0.75;
+        }
+
+        if self.network_state.state.contains(EDGE_TYPE) {
+            self.type_count += 1;
         }
     }
 }
@@ -120,6 +130,7 @@ impl GraphBuilder {
             src_node: 0,
             dst_node: 1,
             length: 1.0,
+            type_count: 0,
             network_state: zygote,
         };
 
@@ -144,26 +155,13 @@ impl GraphBuilder {
     fn write_dot<W: Write>(&self, wr: &mut W) -> io::Result<()> {
         try!(writeln!(wr, "digraph artificial {{"));
 
-        /*
-        let mut nodes = Vec::new();
         for edge in self.edges.iter() {
-            nodes.push(edge.src_node);
-            nodes.push(edge.dst_node);
-        }
-        nodes.sort();
-        nodes.dedup();
-
-        for (i, node) in nodes.iter().enumerate() {
-            try!(writeln!(wr, "N{} [label=\"{}\"];", i, i));
-        }
-        */
-
-        //for i in 0..self.next_node_id {
-            //try!(writeln!(wr, "{}", i));
-        //}
-
-        for edge in self.edges.iter() {
-            try!(writeln!(wr, "{} -> {} [weight={}]", edge.src_node, edge.dst_node, edge.length));
+            try!(writeln!(wr,
+                          "{} -> {} [weight={} label=\"{}\"]",
+                          edge.src_node,
+                          edge.dst_node,
+                          edge.length,
+                          edge.type_count));
         }
 
         try!(writeln!(wr, "}}"));
@@ -215,4 +213,6 @@ fn main() {
     println!("{:#?}", gb);
 
     gb.write_dot(&mut File::create("example1.dot").unwrap());
+
+    // XXX: Convert each edge into a node and then connect these new nodes.
 }
