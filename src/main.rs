@@ -3,13 +3,13 @@
 
 extern crate artificial_genome;
 extern crate rand;
-extern crate dot;
 
 use artificial_genome::{Genome, ProteinRegulator, GeneNetwork, GeneNetworkState};
 use artificial_genome::base4::{Base4, B0, B1};
 // use std::str::FromStr;
 use std::mem;
 use std::borrow::Cow;
+use std::io::{self, Write};
 
 #[derive(Debug, Clone)]
 struct Edge {
@@ -114,41 +114,6 @@ struct GraphBuilder {
     network: GeneNetwork,
 }
 
-impl<'a> dot::Labeller<'a, usize, Edge> for GraphBuilder {
-    fn graph_id(&'a self) -> dot::Id<'a> {
-        dot::Id::new("example1").unwrap()
-    }
-
-    fn node_id(&'a self, n: &usize) -> dot::Id<'a> {
-        dot::Id::new(format!("N{}", *n)).unwrap()
-    }
-}
-
-impl<'a> dot::GraphWalk<'a, usize, Edge> for GraphBuilder {
-    fn nodes(&self) -> dot::Nodes<'a, usize> {
-        let mut nodes = Vec::new();
-        for edge in self.edges.iter() {
-            nodes.push(edge.src_node);
-            nodes.push(edge.dst_node);
-        }
-        nodes.sort();
-        nodes.dedup();
-        Cow::Owned(nodes)
-    }
-
-    fn edges(&'a self) -> dot::Edges<'a, Edge> {
-        Cow::Borrowed(&self.edges[..])
-    }
-
-    fn source(&self, e: &Edge) -> usize {
-        e.src_node
-    }
-
-    fn target(&self, e: &Edge) -> usize {
-        e.dst_node
-    }
-}
-
 impl GraphBuilder {
     fn new(network: GeneNetwork, zygote: GeneNetworkState) -> GraphBuilder {
         let initial_edge = Edge {
@@ -174,6 +139,37 @@ impl GraphBuilder {
         println!("next_node_id: {}", self.next_node_id);
         println!("new edges: {:?}", new_edges);
         self.edges.extend(new_edges);
+    }
+
+    fn write_dot<W: Write>(&self, wr: &mut W) -> io::Result<()> {
+        try!(writeln!(wr, "digraph artificial {{"));
+
+        /*
+        let mut nodes = Vec::new();
+        for edge in self.edges.iter() {
+            nodes.push(edge.src_node);
+            nodes.push(edge.dst_node);
+        }
+        nodes.sort();
+        nodes.dedup();
+
+        for (i, node) in nodes.iter().enumerate() {
+            try!(writeln!(wr, "N{} [label=\"{}\"];", i, i));
+        }
+        */
+
+        //for i in 0..self.next_node_id {
+            //try!(writeln!(wr, "{}", i));
+        //}
+
+        for edge in self.edges.iter() {
+            try!(writeln!(wr, "{} -> {} [weight={}]", edge.src_node, edge.dst_node, edge.length));
+        }
+
+        try!(writeln!(wr, "}}"));
+
+
+        Ok(())
     }
 }
 
@@ -218,6 +214,5 @@ fn main() {
     }
     println!("{:#?}", gb);
 
-    let mut f = File::create("example1.dot").unwrap();
-    dot::render(&gb, &mut f).unwrap();
+    gb.write_dot(&mut File::create("example1.dot").unwrap());
 }
