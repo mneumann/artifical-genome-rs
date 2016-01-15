@@ -8,3 +8,5 @@ description = "Reil's Artificial Genome"
 keywords = ["biology"]
 
 [dependencies]
+
+fixedbitset = "0.1.0"

@@ -1,9 +1,12 @@
+extern crate fixedbitset;
+
 pub mod dna_base;
 pub mod base4;
 
 use std::str::FromStr;
 use std::ops::Deref;
 use std::fmt;
+use fixedbitset::FixedBitSet;
 
 /// Represents the bases used in the genome string.
 /// For example the bases of the DNA are adenine (A),
@@ -158,17 +161,31 @@ struct Edge {
 }
 
 #[derive(Debug)]
-struct Node<N: fmt::Debug + Eq> {
+pub struct Node<N: fmt::Debug + Eq> {
     name: Option<N>,
-    edges: Vec<Edge>,
+    incoming_edges: Vec<Edge>,
 }
 
 impl<N: fmt::Debug + Eq> Node<N> {
     fn new() -> Node<N> {
         Node {
             name: None,
-            edges: Vec::new(),
+            incoming_edges: Vec::new(),
         }
+    }
+
+    pub fn sum_edges(&self, network_state: &GeneNetworkState) -> i32 {
+        let mut sum = 0;
+        for edge in self.incoming_edges.iter() {
+            let factor = if network_state.state.contains(edge.src) {
+                1
+            } else {
+                0
+            };
+            sum += factor * edge.weight.0;
+        }
+
+        return sum;
     }
 }
 
@@ -177,22 +194,37 @@ pub struct GeneNetwork<N: fmt::Debug + Eq> {
     nodes: Vec<Node<N>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct GeneNetworkState {
+    state: FixedBitSet,
+}
+
 impl<N: fmt::Debug + Eq> GeneNetwork<N> {
     fn new(num_nodes: usize) -> GeneNetwork<N> {
+        assert!(num_nodes > 0);
         GeneNetwork { nodes: (0..num_nodes).map(|_| Node::new()).collect() }
+    }
+
+    pub fn nodes(&self) -> &[Node<N>] {
+        &self.nodes
     }
 
     fn set_node_name(&mut self, node_id: usize, name: N) {
         assert!(node_id < self.nodes.len());
         self.nodes[node_id].name = Some(name);
     }
+
     fn add_edge(&mut self, src: usize, dst: usize, weight: ProteinRegulator) {
         assert!(src < self.nodes.len());
         assert!(dst < self.nodes.len());
-        self.nodes[dst].edges.push(Edge {
+        self.nodes[dst].incoming_edges.push(Edge {
             src: src,
             weight: weight,
         });
+    }
+
+    pub fn new_state(&self) -> GeneNetworkState {
+        GeneNetworkState { state: FixedBitSet::with_capacity(self.nodes.len()) }
     }
 }
 
@@ -210,8 +242,6 @@ impl<B: Base> Genome<B> {
     }
 
     // Construct a dependency network between the genes
-    // * need a fn that determines if the gene product is supressing or depressing
-    // * need a map function that maps the gene to a "name" (or operation).
     pub fn construct_network<R, F, N>(&self,
                                       promoter: &[B],
                                       length_of_gene: usize,
@@ -219,7 +249,7 @@ impl<B: Base> Genome<B> {
                                       gene_namer: &F)
                                       -> GeneNetwork<N>
         where R: Fn(&[B]) -> ProteinRegulator,
-              F: Fn(&[B]) -> N,
+              F: Fn(&[B]) -> Option<N>,
               N: fmt::Debug + Eq
     {
         let genes: Vec<_> = self.iter_genes(promoter, length_of_gene).collect();
@@ -229,7 +259,9 @@ impl<B: Base> Genome<B> {
         let mut network = GeneNetwork::new(num_genes);
 
         for (src, gene) in genes.iter().enumerate() {
-            network.set_node_name(src, gene_namer(gene.gene));
+            if let Some(name) = gene_namer(gene.gene) {
+                network.set_node_name(src, name);
+            }
 
             let product = gene.product();
             // A gene product either enhances (> 0) or inyhibits (< 0) the expression of
@@ -238,13 +270,13 @@ impl<B: Base> Genome<B> {
 
             // determine which other genes ```gene``` regulates
             for (dst, gene2) in genes.iter().enumerate() {
-                // a gene does not regulate itself
-                if src != dst {
-                    let factor = gene2.count_product_in_regulatory_region(&product);
-                    if factor > 0 {
-                        network.add_edge(src, dst, ProteinRegulator(regulator.0 * factor as i32));
-                    }
+                // XXX: Can a gene regulate itself?
+                // if src != dst {
+                let factor = gene2.count_product_in_regulatory_region(&product);
+                if factor > 0 {
+                    network.add_edge(src, dst, ProteinRegulator(regulator.0 * factor as i32));
                 }
+                // }
             }
         }
 
