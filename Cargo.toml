@@ -11,3 +11,4 @@ keywords = ["biology"]
 
 fixedbitset = "0.1.0"
 rand = "0.3"
+dot = "0.1.2"

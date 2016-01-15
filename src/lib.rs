@@ -154,9 +154,7 @@ impl<B: Base> Debug for BaseString<B> {
 impl<B: Base> BaseString<B> {
     pub fn random<R: Rng>(rng: &mut R, n: usize) -> BaseString<B> {
         assert!(n > 0);
-        BaseString {
-            v: (0..n).map(|_| rng.gen()).collect(),
-        }
+        BaseString { v: (0..n).map(|_| rng.gen()).collect() }
     }
 }
 
@@ -168,9 +166,7 @@ pub struct Genome<B: Base> {
 
 impl<B: Base> Genome<B> {
     pub fn random<R: Rng>(rng: &mut R, n: usize) -> Genome<B> {
-        Genome {
-            genome: BaseString::random(rng, n)
-        }
+        Genome { genome: BaseString::random(rng, n) }
     }
 }
 
@@ -187,9 +183,7 @@ pub struct Node {
 
 impl Node {
     fn new() -> Node {
-        Node {
-            incoming_edges: Vec::new(),
-        }
+        Node { incoming_edges: Vec::new() }
     }
 
     pub fn sum_edges(&self, network_state: &GeneNetworkState) -> i32 {
@@ -256,11 +250,11 @@ impl<B: Base> Genome<B> {
 
     // Construct a dependency network between the genes
     pub fn construct_network<F>(&self,
-                                      promoter: &[B],
-                                      length_of_gene: usize,
-                                      protein_regulation: &F)
-                                      -> GeneNetwork
-        where F: Fn(&[B]) -> ProteinRegulator,
+                                promoter: &[B],
+                                length_of_gene: usize,
+                                protein_regulation: &F)
+                                -> GeneNetwork
+        where F: Fn(&[B]) -> ProteinRegulator
     {
         let genes: Vec<_> = self.iter_genes(promoter, length_of_gene).collect();
         let num_genes = genes.len();

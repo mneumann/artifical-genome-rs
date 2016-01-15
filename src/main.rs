@@ -3,13 +3,15 @@
 
 extern crate artificial_genome;
 extern crate rand;
+extern crate dot;
 
 use artificial_genome::{Genome, ProteinRegulator, GeneNetwork, GeneNetworkState};
 use artificial_genome::base4::{Base4, B0, B1};
-//use std::str::FromStr;
+// use std::str::FromStr;
 use std::mem;
+use std::borrow::Cow;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Edge {
     src_node: usize,
     dst_node: usize,
@@ -112,6 +114,41 @@ struct GraphBuilder {
     network: GeneNetwork,
 }
 
+impl<'a> dot::Labeller<'a, usize, Edge> for GraphBuilder {
+    fn graph_id(&'a self) -> dot::Id<'a> {
+        dot::Id::new("example1").unwrap()
+    }
+
+    fn node_id(&'a self, n: &usize) -> dot::Id<'a> {
+        dot::Id::new(format!("N{}", *n)).unwrap()
+    }
+}
+
+impl<'a> dot::GraphWalk<'a, usize, Edge> for GraphBuilder {
+    fn nodes(&self) -> dot::Nodes<'a, usize> {
+        let mut nodes = Vec::new();
+        for edge in self.edges.iter() {
+            nodes.push(edge.src_node);
+            nodes.push(edge.dst_node);
+        }
+        nodes.sort();
+        nodes.dedup();
+        Cow::Owned(nodes)
+    }
+
+    fn edges(&'a self) -> dot::Edges<'a, Edge> {
+        Cow::Borrowed(&self.edges[..])
+    }
+
+    fn source(&self, e: &Edge) -> usize {
+        e.src_node
+    }
+
+    fn target(&self, e: &Edge) -> usize {
+        e.dst_node
+    }
+}
+
 impl GraphBuilder {
     fn new(network: GeneNetwork, zygote: GeneNetworkState) -> GraphBuilder {
         let initial_edge = Edge {
@@ -134,17 +171,20 @@ impl GraphBuilder {
         for edge in self.edges.iter_mut() {
             edge.develop(&self.network, &mut self.next_node_id, &mut new_edges);
         }
+        println!("next_node_id: {}", self.next_node_id);
+        println!("new edges: {:?}", new_edges);
         self.edges.extend(new_edges);
     }
 }
 
 
 fn main() {
-    //let genome = Genome::<Base4>::from_str("...11 _0320_23 <0101> T:0311 2...3 _1022_ 133 <0101> \
-                                            //W:3213 121...")
+    use std::fs::File;
+    // let genome = Genome::<Base4>::from_str("...11 _0320_23 <0101> T:0311 2...3 _1022_ 133 <0101> \
+    // W:3213 121...")
     let mut rng = rand::thread_rng();
 
-    let genome = Genome::<Base4>::random(&mut rng, 5*256);
+    let genome = Genome::<Base4>::random(&mut rng, 10 * 256);
 
     // let promoter = BaseString::<Base4>::from_str("0101").unwrap();
     let promoter = [B0, B1, B0, B1];
@@ -162,15 +202,22 @@ fn main() {
                                                    // Inhibitor
                                                    ProteinRegulator::enhance()
                                                }
-                                           }
-                                           );
+                                           });
 
     println!("{:#?}", network);
 
-    let zygote = network.new_state();
+    let mut zygote = network.new_state();
+    zygote.state.set(0, true);
+    zygote.state.set(1, true);
+
     let mut gb = GraphBuilder::new(network, zygote);
     println!("{:#?}", gb);
 
-    gb.next();
+    for i in 0..3 {
+        gb.next();
+    }
     println!("{:#?}", gb);
+
+    let mut f = File::create("example1.dot").unwrap();
+    dot::render(&gb, &mut f).unwrap();
 }
