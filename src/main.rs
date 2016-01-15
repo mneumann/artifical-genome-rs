@@ -2,28 +2,12 @@
 #![allow(dead_code)]
 
 extern crate artificial_genome;
+extern crate rand;
 
 use artificial_genome::{Genome, ProteinRegulator, GeneNetwork, GeneNetworkState};
-use artificial_genome::base4::{Base4, B0, B1, B2, B3};
-use std::str::FromStr;
+use artificial_genome::base4::{Base4, B0, B1};
+//use std::str::FromStr;
 use std::mem;
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-enum GraphGrammar {
-    Split,
-    Duplicate,
-    Swap,
-    Resize,
-}
-
-impl GraphGrammar {
-    fn is_division(self) -> bool {
-        match self {
-            GraphGrammar::Split | GraphGrammar::Duplicate => true,
-            _ => false,
-        }
-    }
-}
 
 #[derive(Debug)]
 struct Edge {
@@ -47,9 +31,9 @@ impl Edge {
 
         for (i, node) in network.nodes().iter().enumerate() {
             // determine the new state of ```node``` (position i in new_state)
-            if node.sum_edges(self.network_state) > 0 {
+            if node.sum_edges(&self.network_state) > 0 {
                 // node is enabled
-                new_state.insert(i);
+                new_state.state.insert(i);
             }
         }
 
@@ -68,32 +52,32 @@ impl Edge {
         // of the edges when a new edge is created.
         //
 
-        if self.network_state.contains(1) {
+        if self.network_state.state.contains(1) {
             // GraphGrammar::Split
             let new_node = *next_node_id;
             *next_node_id += 1;
 
             // differentiate
-            let child_state = self.network_state.clone();
-            child_state.set(0, !self.network_state.contains(0));
+            let mut child_state = self.network_state.clone();
+            child_state.state.set(0, !self.network_state.state.contains(0));
 
             let new_edge = Edge {
                 src_node: new_node,
                 dst_node: self.dst_node,
-                length: self.length / 2,
+                length: 0.5 * self.length,
                 network_state: child_state,
             };
             self.dst_node = new_node;
-            self.length /= 2.0;
+            self.length *= 0.5;
             new_edges.push(new_edge);
         }
 
-        if self.network_state.contains(2) {
+        if self.network_state.state.contains(2) {
             // GraphGrammar::Duplicate
 
             // differentiate
-            let child_state = self.network_state.clone();
-            child_state.set(0, !self.network_state.contains(0));
+            let mut child_state = self.network_state.clone();
+            child_state.state.set(0, !self.network_state.state.contains(0));
 
             let new_edge = Edge {
                 src_node: self.src_node,
@@ -104,17 +88,17 @@ impl Edge {
             new_edges.push(new_edge);
         }
 
-        if self.network_state.contains(3) {
+        if self.network_state.state.contains(3) {
             // GraphGrammar::Swap
-            mem::swap(&self.dst_node, &self.src_node);
+            mem::swap(&mut self.dst_node, &mut self.src_node);
         }
 
-        if self.network_state.contains(4) {
+        if self.network_state.state.contains(4) {
             // GraphGrammar::Resize grow
             self.length *= 1.25;
         }
 
-        if self.network_state.contains(5) {
+        if self.network_state.state.contains(5) {
             // GraphGrammar::Resize shrink
             self.length *= 0.75;
         }
@@ -124,13 +108,12 @@ impl Edge {
 #[derive(Debug)]
 struct GraphBuilder {
     edges: Vec<Edge>,
-    resize_factor: f32,
     next_node_id: usize,
-    network: GeneNetwork<GraphGrammar>,
+    network: GeneNetwork,
 }
 
 impl GraphBuilder {
-    fn new(network: GeneNetwork<GraphGrammar>, zygote: GeneNetworkState) -> GraphBuilder {
+    fn new(network: GeneNetwork, zygote: GeneNetworkState) -> GraphBuilder {
         let initial_edge = Edge {
             src_node: 0,
             dst_node: 1,
@@ -140,7 +123,6 @@ impl GraphBuilder {
 
         GraphBuilder {
             edges: vec![initial_edge],
-            resize_factor: 0.25,
             next_node_id: 2,
             network: network,
         }
@@ -152,16 +134,18 @@ impl GraphBuilder {
         for edge in self.edges.iter_mut() {
             edge.develop(&self.network, &mut self.next_node_id, &mut new_edges);
         }
-        self.edges.append(new_edges);
+        self.edges.extend(new_edges);
     }
 }
 
 
 fn main() {
-    // let genome = Genome::<Base4>::from_str("<0101> 1111 | 2222 <0101> 3101")
-    let genome = Genome::<Base4>::from_str("...11 _0320_23 <0101> T:0311 2...3 _1022_ 133 <0101> \
-                                            W:3213 121...")
-                     .unwrap();
+    //let genome = Genome::<Base4>::from_str("...11 _0320_23 <0101> T:0311 2...3 _1022_ 133 <0101> \
+                                            //W:3213 121...")
+    let mut rng = rand::thread_rng();
+
+    let genome = Genome::<Base4>::random(&mut rng, 5*256);
+
     // let promoter = BaseString::<Base4>::from_str("0101").unwrap();
     let promoter = [B0, B1, B0, B1];
 
@@ -178,25 +162,15 @@ fn main() {
                                                    // Inhibitor
                                                    ProteinRegulator::enhance()
                                                }
-                                           },
-                                           &|gene| {
-                                               // XXX: Convert into u8
-                                               match gene {
-                                                   [B0, B3, B1, B1] => {
-                                                       // ('T', Some(GraphGrammar::Duplicate))
-                                                       Some(GraphGrammar::Duplicate)
-                                                   }
-                                                   [B3, B2, B1, B3] => {
-                                                       // ('W', Some(GraphGrammar::Swap))
-                                                       Some(GraphGrammar::Swap)
-                                                   }
-                                                   _ => None, //('X', None),
-                                               }
-                                           });
+                                           }
+                                           );
 
     println!("{:#?}", network);
 
     let zygote = network.new_state();
     let mut gb = GraphBuilder::new(network, zygote);
+    println!("{:#?}", gb);
+
+    gb.next();
     println!("{:#?}", gb);
 }

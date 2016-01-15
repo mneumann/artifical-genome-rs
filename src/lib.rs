@@ -1,17 +1,19 @@
 extern crate fixedbitset;
+extern crate rand;
 
 pub mod dna_base;
 pub mod base4;
 
 use std::str::FromStr;
 use std::ops::Deref;
-use std::fmt;
+use std::fmt::{self, Debug};
 use fixedbitset::FixedBitSet;
+use rand::{Rng, Rand};
 
 /// Represents the bases used in the genome string.
 /// For example the bases of the DNA are adenine (A),
 /// thymine (T), guanine (G) and cytosine (C).
-pub trait Base: Sized + PartialEq + Eq + Copy + Clone + fmt::Debug {
+pub trait Base: Sized + PartialEq + Eq + Copy + Clone + Debug + Rand {
     /// Returns the "successor" base, wrapping around. Used
     /// to produce the gene product.
     fn succ(self) -> Self;
@@ -106,10 +108,6 @@ impl<'a, 'b, B: Base + 'a + 'b> Iterator for GeneIterator<'a, 'b, B> {
     }
 }
 
-pub struct BaseString<B: Base> {
-    v: Vec<B>,
-}
-
 // A positive value enhances, a negative inhibits the expression of a gene.
 #[derive(Debug)]
 pub struct ProteinRegulator(i32);
@@ -122,6 +120,10 @@ impl ProteinRegulator {
     pub fn inhibit() -> ProteinRegulator {
         ProteinRegulator(-1)
     }
+}
+
+pub struct BaseString<B: Base> {
+    v: Vec<B>,
 }
 
 impl<B: Base> FromStr for BaseString<B> {
@@ -139,7 +141,7 @@ impl<B: Base> Deref for BaseString<B> {
     }
 }
 
-impl<B: Base> fmt::Debug for BaseString<B> {
+impl<B: Base> Debug for BaseString<B> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "["));
         for base in &self.v {
@@ -149,9 +151,27 @@ impl<B: Base> fmt::Debug for BaseString<B> {
     }
 }
 
+impl<B: Base> BaseString<B> {
+    pub fn random<R: Rng>(rng: &mut R, n: usize) -> BaseString<B> {
+        assert!(n > 0);
+        BaseString {
+            v: (0..n).map(|_| rng.gen()).collect(),
+        }
+    }
+}
+
+
 /// A Genome is a string of Base
 pub struct Genome<B: Base> {
     genome: BaseString<B>,
+}
+
+impl<B: Base> Genome<B> {
+    pub fn random<R: Rng>(rng: &mut R, n: usize) -> Genome<B> {
+        Genome {
+            genome: BaseString::random(rng, n)
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -161,15 +181,13 @@ struct Edge {
 }
 
 #[derive(Debug)]
-pub struct Node<N: fmt::Debug + Eq> {
-    name: Option<N>,
+pub struct Node {
     incoming_edges: Vec<Edge>,
 }
 
-impl<N: fmt::Debug + Eq> Node<N> {
-    fn new() -> Node<N> {
+impl Node {
+    fn new() -> Node {
         Node {
-            name: None,
             incoming_edges: Vec::new(),
         }
     }
@@ -190,28 +208,23 @@ impl<N: fmt::Debug + Eq> Node<N> {
 }
 
 #[derive(Debug)]
-pub struct GeneNetwork<N: fmt::Debug + Eq> {
-    nodes: Vec<Node<N>>,
+pub struct GeneNetwork {
+    nodes: Vec<Node>,
 }
 
 #[derive(Debug, Clone)]
 pub struct GeneNetworkState {
-    state: FixedBitSet,
+    pub state: FixedBitSet,
 }
 
-impl<N: fmt::Debug + Eq> GeneNetwork<N> {
-    fn new(num_nodes: usize) -> GeneNetwork<N> {
+impl GeneNetwork {
+    fn new(num_nodes: usize) -> GeneNetwork {
         assert!(num_nodes > 0);
         GeneNetwork { nodes: (0..num_nodes).map(|_| Node::new()).collect() }
     }
 
-    pub fn nodes(&self) -> &[Node<N>] {
+    pub fn nodes(&self) -> &[Node] {
         &self.nodes
-    }
-
-    fn set_node_name(&mut self, node_id: usize, name: N) {
-        assert!(node_id < self.nodes.len());
-        self.nodes[node_id].name = Some(name);
     }
 
     fn add_edge(&mut self, src: usize, dst: usize, weight: ProteinRegulator) {
@@ -242,15 +255,12 @@ impl<B: Base> Genome<B> {
     }
 
     // Construct a dependency network between the genes
-    pub fn construct_network<R, F, N>(&self,
+    pub fn construct_network<F>(&self,
                                       promoter: &[B],
                                       length_of_gene: usize,
-                                      protein_regulation: &R,
-                                      gene_namer: &F)
-                                      -> GeneNetwork<N>
-        where R: Fn(&[B]) -> ProteinRegulator,
-              F: Fn(&[B]) -> Option<N>,
-              N: fmt::Debug + Eq
+                                      protein_regulation: &F)
+                                      -> GeneNetwork
+        where F: Fn(&[B]) -> ProteinRegulator,
     {
         let genes: Vec<_> = self.iter_genes(promoter, length_of_gene).collect();
         let num_genes = genes.len();
@@ -259,10 +269,6 @@ impl<B: Base> Genome<B> {
         let mut network = GeneNetwork::new(num_genes);
 
         for (src, gene) in genes.iter().enumerate() {
-            if let Some(name) = gene_namer(gene.gene) {
-                network.set_node_name(src, name);
-            }
-
             let product = gene.product();
             // A gene product either enhances (> 0) or inyhibits (< 0) the expression of
             // another gene.

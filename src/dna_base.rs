@@ -1,4 +1,5 @@
 use super::Base;
+use rand::{Rand, Rng};
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[repr(u8)]
@@ -7,6 +8,12 @@ pub enum DNABase {
     T,
     G,
     C,
+}
+
+impl Rand for DNABase {
+    fn rand<R: Rng>(rng: &mut R) -> Self {
+        *rng.choose(&[DNABase::A, DNABase::T, DNABase::G, DNABase::C]).unwrap()
+    }
 }
 
 impl Base for DNABase {
