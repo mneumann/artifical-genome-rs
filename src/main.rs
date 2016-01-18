@@ -360,33 +360,52 @@ impl GraphBuilder {
     // structural information). Transform this "edged" graph into a graph where the edges become
     // nodes.
     fn into_node_graph(&self) -> NodeGraph {
+        // only keep one directed edge between each pair of nodes.
+        // keep the edge with highest type_count.
+
+        let mut e: Vec<Edge> = Vec::new();
+        {
+            // stores (src_node, dst_node) => edge idx
+            let mut selected_edges: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+            for (i, edge) in self.edges.iter().enumerate() {
+                let idx_ref = selected_edges.entry((edge.src_node, edge.dst_node)).or_insert(i);
+                let old = &self.edges[*idx_ref];
+                if edge.type_count > old.type_count {
+                    *idx_ref = i;
+                }
+            }
+            for (_, &edge_idx) in selected_edges.iter() {
+                e.push(self.edges[edge_idx].clone());
+            }
+        }
+
         let mut node_graph = NodeGraph {
-            nodes: Vec::with_capacity(self.edges.len()),
+            nodes: Vec::with_capacity(e.len()),
             edges: BTreeSet::new(),
         };
 
-        let mut node_out_edges: Vec<Vec<usize>> = (0..self.next_node_id)
-                                                      .map(|_| Vec::new())
-                                                      .collect();
+        let mut node_out_edges: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
 
         // every edge becomes a node.
         // note that ```i``` matches the indices  we use for ```new_nodes```.
-        for (i, edge) in self.edges.iter().enumerate() {
+        for (i, edge) in e.iter().enumerate() {
             let j = node_graph.nodes.len();
             node_graph.nodes.push(NodeInfo {
                 length: edge.length,
                 type_count: edge.type_count,
             });
             assert!(i == j);
-            node_out_edges[edge.src_node].push(i);
+            node_out_edges.entry(edge.src_node).or_insert(Vec::new()).push(i);
         }
-        assert!(node_graph.nodes.len() == self.edges.len());
+        assert!(node_graph.nodes.len() == e.len());
 
-        for (i, edge) in self.edges.iter().enumerate() {
+        for (i, edge) in e.iter().enumerate() {
             // connect i with all outgoing edges of dst_node
 
-            for &out_i in node_out_edges[edge.dst_node].iter() {
-                node_graph.edges.insert((i, out_i));
+            if let Some(list) = node_out_edges.get(&edge.dst_node) {
+                for &out_i in list.iter() {
+                    node_graph.edges.insert((i, out_i));
+                }
             }
         }
 
