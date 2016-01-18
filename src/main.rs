@@ -117,9 +117,39 @@ impl Edge {
     }
 }
 
+struct NodeGraph {
+    nodes: Vec<NodeInfo>,
+    edges: Vec<(usize, usize)>,
+}
+
 struct NodeInfo {
     length: f32,
     type_count: usize,
+}
+
+impl NodeGraph {
+    fn write_dot<W: Write>(&self, wr: &mut W) -> io::Result<()> {
+        try!(writeln!(wr, "digraph artificial {{"));
+
+        // the edges are nodes in this graph.
+        for (i, node) in self.nodes.iter().enumerate() {
+            try!(writeln!(wr,
+                          "{} [label=\"{}:{:.2}:{}\"]",
+                          i,
+                          i,
+                          node.length,
+                          node.type_count));
+        }
+
+        // now connect them
+        for &(src_edge, dst_edge) in self.edges.iter() {
+            try!(writeln!(wr, "{} -> {}", src_edge, dst_edge));
+        }
+
+        try!(writeln!(wr, "}}"));
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -161,21 +191,23 @@ impl GraphBuilder {
     // Neuron or a Synapse), while the nodes represent connection points (they carry purely
     // structural information). Transform this "edged" graph into a graph where the edges become
     // nodes.
-    fn into_node_graph(&self) -> (Vec<NodeInfo>, Vec<(usize, usize)>) {
+    fn into_node_graph(&self) -> NodeGraph {
         let mut node_out_edges: Vec<Vec<usize>> = (0..self.next_node_id)
                                                       .map(|_| Vec::new())
                                                       .collect();
         let mut node_in_edges: Vec<Vec<usize>> = (0..self.next_node_id)
                                                      .map(|_| Vec::new())
                                                      .collect();
-        let mut new_nodes: Vec<NodeInfo> = Vec::with_capacity(self.edges.len());
-        let mut new_edges: Vec<(usize, usize)> = Vec::new();
+        let mut node_graph = NodeGraph {
+            nodes: Vec::with_capacity(self.edges.len()),
+            edges: Vec::new(),
+        };
 
         // every edge becomes a node.
         // note that ```i``` matches the indices  we use for ```new_nodes```.
         for (i, edge) in self.edges.iter().enumerate() {
-            let j = new_nodes.len();
-            new_nodes.push(NodeInfo {
+            let j = node_graph.nodes.len();
+            node_graph.nodes.push(NodeInfo {
                 length: edge.length,
                 type_count: edge.type_count,
             });
@@ -183,7 +215,7 @@ impl GraphBuilder {
             node_out_edges[edge.src_node].push(i);
             node_in_edges[edge.dst_node].push(i);
         }
-        assert!(new_nodes.len() == self.edges.len());
+        assert!(node_graph.nodes.len() == self.edges.len());
 
         for (i, edge) in self.edges.iter().enumerate() {
             // connect i with all outgoing edges of dst_node
@@ -199,15 +231,15 @@ impl GraphBuilder {
             //
 
             for &out_i in node_out_edges[edge.dst_node].iter() {
-                new_edges.push((i, out_i));
+                node_graph.edges.push((i, out_i));
             }
             // connect i with all incoming edges of src_node
             for &in_i in node_in_edges[edge.src_node].iter() {
-                new_edges.push((in_i, i));
+                node_graph.edges.push((in_i, i));
             }
         }
 
-        (new_nodes, new_edges)
+        node_graph
     }
 
 
@@ -229,34 +261,6 @@ impl GraphBuilder {
         Ok(())
     }
 }
-
-fn write_node_graph_dot<W: Write>(node_graph: (Vec<NodeInfo>, Vec<(usize, usize)>),
-                                  wr: &mut W)
-                                  -> io::Result<()> {
-    try!(writeln!(wr, "digraph artificial {{"));
-
-    let (new_nodes, new_edges) = node_graph;
-
-    // the edges are nodes in this graph.
-    for (i, node) in new_nodes.iter().enumerate() {
-        try!(writeln!(wr,
-                      "{} [label=\"{}:{:.2}:{}\"]",
-                      i,
-                      i,
-                      node.length,
-                      node.type_count));
-    }
-
-    // now connect them
-    for &(src_edge, dst_edge) in new_edges.iter() {
-        try!(writeln!(wr, "{} -> {}", src_edge, dst_edge));
-    }
-
-    try!(writeln!(wr, "}}"));
-
-    Ok(())
-}
-
 
 
 fn main() {
@@ -302,5 +306,5 @@ fn main() {
     // gb.write_dot(&mut File::create("example1.dot").unwrap());
 
     let node_graph = gb.into_node_graph();
-    write_node_graph_dot(node_graph, &mut File::create("example1_node.dot").unwrap()).unwrap();
+    node_graph.write_dot(&mut File::create("example1_node.dot").unwrap()).unwrap();
 }
