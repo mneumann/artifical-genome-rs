@@ -6,9 +6,7 @@ extern crate rand;
 
 use artificial_genome::{Genome, ProteinRegulator, GeneNetwork, GeneNetworkState};
 use artificial_genome::base4::{Base4, B0, B1};
-// use std::str::FromStr;
 use std::mem;
-use std::borrow::Cow;
 use std::io::{self, Write};
 
 #[derive(Debug, Clone)]
@@ -32,6 +30,8 @@ const EDGE_SWAP: usize = 3;
 const EDGE_GROW: usize = 4;
 const EDGE_SHRINK: usize = 5;
 const EDGE_TYPE: usize = 6;
+
+const RESIZE_FACTOR: f32 = 0.25;
 
 impl Edge {
     fn transition_state(&mut self, network: &GeneNetwork) {
@@ -104,17 +104,22 @@ impl Edge {
         }
 
         if self.network_state.state.contains(EDGE_GROW) {
-            self.length *= 1.25;
+            self.length += RESIZE_FACTOR * self.length;
         }
 
         if self.network_state.state.contains(EDGE_SHRINK) {
-            self.length *= 0.75;
+            self.length -= RESIZE_FACTOR * self.length;
         }
 
         if self.network_state.state.contains(EDGE_TYPE) {
             self.type_count += 1;
         }
     }
+}
+
+struct NodeInfo {
+    length: f32,
+    type_count: usize,
 }
 
 #[derive(Debug)]
@@ -152,6 +157,60 @@ impl GraphBuilder {
         self.edges.extend(new_edges);
     }
 
+    // The result of the GraphBuilder is a graph where every edge represents an element (either a
+    // Neuron or a Synapse), while the nodes represent connection points (they carry purely
+    // structural information). Transform this "edged" graph into a graph where the edges become
+    // nodes.
+    fn into_node_graph(&self) -> (Vec<NodeInfo>, Vec<(usize, usize)>) {
+        let mut node_out_edges: Vec<Vec<usize>> = (0..self.next_node_id)
+                                                      .map(|_| Vec::new())
+                                                      .collect();
+        let mut node_in_edges: Vec<Vec<usize>> = (0..self.next_node_id)
+                                                     .map(|_| Vec::new())
+                                                     .collect();
+        let mut new_nodes: Vec<NodeInfo> = Vec::with_capacity(self.edges.len());
+        let mut new_edges: Vec<(usize, usize)> = Vec::new();
+
+        // every edge becomes a node.
+        // note that ```i``` matches the indices  we use for ```new_nodes```.
+        for (i, edge) in self.edges.iter().enumerate() {
+            let j = new_nodes.len();
+            new_nodes.push(NodeInfo {
+                length: edge.length,
+                type_count: edge.type_count,
+            });
+            assert!(i == j);
+            node_out_edges[edge.src_node].push(i);
+            node_in_edges[edge.dst_node].push(i);
+        }
+        assert!(new_nodes.len() == self.edges.len());
+
+        for (i, edge) in self.edges.iter().enumerate() {
+            // connect i with all outgoing edges of dst_node
+
+            // if node_out_edges[edge.dst_node].is_empty() {
+            // println!("Empty node");
+            // XXX: turn it into an output-node
+            // }
+            // if node_in_edges[edge.src_node].is_empty() {
+            // println!("Empty node");
+            // XXX: turn it into an input-node
+            // }
+            //
+
+            for &out_i in node_out_edges[edge.dst_node].iter() {
+                new_edges.push((i, out_i));
+            }
+            // connect i with all incoming edges of src_node
+            for &in_i in node_in_edges[edge.src_node].iter() {
+                new_edges.push((in_i, i));
+            }
+        }
+
+        (new_nodes, new_edges)
+    }
+
+
     fn write_dot<W: Write>(&self, wr: &mut W) -> io::Result<()> {
         try!(writeln!(wr, "digraph artificial {{"));
 
@@ -171,6 +230,34 @@ impl GraphBuilder {
     }
 }
 
+fn write_node_graph_dot<W: Write>(node_graph: (Vec<NodeInfo>, Vec<(usize, usize)>),
+                                  wr: &mut W)
+                                  -> io::Result<()> {
+    try!(writeln!(wr, "digraph artificial {{"));
+
+    let (new_nodes, new_edges) = node_graph;
+
+    // the edges are nodes in this graph.
+    for (i, node) in new_nodes.iter().enumerate() {
+        try!(writeln!(wr,
+                      "{} [label=\"{}:{:.2}:{}\"]",
+                      i,
+                      i,
+                      node.length,
+                      node.type_count));
+    }
+
+    // now connect them
+    for &(src_edge, dst_edge) in new_edges.iter() {
+        try!(writeln!(wr, "{} -> {}", src_edge, dst_edge));
+    }
+
+    try!(writeln!(wr, "}}"));
+
+    Ok(())
+}
+
+
 
 fn main() {
     use std::fs::File;
@@ -178,7 +265,7 @@ fn main() {
     // W:3213 121...")
     let mut rng = rand::thread_rng();
 
-    let genome = Genome::<Base4>::random(&mut rng, 10 * 256);
+    let genome = Genome::<Base4>::random(&mut rng, 5 * 256);
 
     // let promoter = BaseString::<Base4>::from_str("0101").unwrap();
     let promoter = [B0, B1, B0, B1];
@@ -202,17 +289,18 @@ fn main() {
 
     let mut zygote = network.new_state();
     zygote.state.set(0, true);
-    zygote.state.set(1, true);
+    // zygote.state.set(1, true);
 
     let mut gb = GraphBuilder::new(network, zygote);
     println!("{:#?}", gb);
 
-    for i in 0..3 {
+    for _ in 0..3 {
         gb.next();
     }
     println!("{:#?}", gb);
 
-    gb.write_dot(&mut File::create("example1.dot").unwrap());
+    // gb.write_dot(&mut File::create("example1.dot").unwrap());
 
-    // XXX: Convert each edge into a node and then connect these new nodes.
+    let node_graph = gb.into_node_graph();
+    write_node_graph_dot(node_graph, &mut File::create("example1_node.dot").unwrap()).unwrap();
 }
