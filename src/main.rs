@@ -286,6 +286,10 @@ impl StructuredGraph {
         try!(writeln!(wr, "digraph artificial {{"));
 
         for (&i, node) in self.nodes.iter() {
+            if node.connections.is_empty() {
+                // XXX
+                continue;
+            }
             try!(writeln!(wr,
                           "{} [label=\"{} {:.2} {}\"]",
                           i,
@@ -356,16 +360,14 @@ impl GraphBuilder {
     // structural information). Transform this "edged" graph into a graph where the edges become
     // nodes.
     fn into_node_graph(&self) -> NodeGraph {
-        let mut node_out_edges: Vec<Vec<usize>> = (0..self.next_node_id)
-                                                      .map(|_| Vec::new())
-                                                      .collect();
-        let mut node_in_edges: Vec<Vec<usize>> = (0..self.next_node_id)
-                                                     .map(|_| Vec::new())
-                                                     .collect();
         let mut node_graph = NodeGraph {
             nodes: Vec::with_capacity(self.edges.len()),
             edges: BTreeSet::new(),
         };
+
+        let mut node_out_edges: Vec<Vec<usize>> = (0..self.next_node_id)
+                                                      .map(|_| Vec::new())
+                                                      .collect();
 
         // every edge becomes a node.
         // note that ```i``` matches the indices  we use for ```new_nodes```.
@@ -377,35 +379,19 @@ impl GraphBuilder {
             });
             assert!(i == j);
             node_out_edges[edge.src_node].push(i);
-            node_in_edges[edge.dst_node].push(i);
         }
         assert!(node_graph.nodes.len() == self.edges.len());
 
         for (i, edge) in self.edges.iter().enumerate() {
             // connect i with all outgoing edges of dst_node
 
-            // if node_out_edges[edge.dst_node].is_empty() {
-            // println!("Empty node");
-            // XXX: turn it into an output-node
-            // }
-            // if node_in_edges[edge.src_node].is_empty() {
-            // println!("Empty node");
-            // XXX: turn it into an input-node
-            // }
-            //
-
             for &out_i in node_out_edges[edge.dst_node].iter() {
                 node_graph.edges.insert((i, out_i));
-            }
-            // connect i with all incoming edges of src_node
-            for &in_i in node_in_edges[edge.src_node].iter() {
-                node_graph.edges.insert((in_i, i));
             }
         }
 
         node_graph
     }
-
 
     fn write_dot<W: Write>(&self, wr: &mut W) -> io::Result<()> {
         try!(writeln!(wr, "digraph artificial {{"));
