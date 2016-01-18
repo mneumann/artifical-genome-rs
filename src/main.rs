@@ -144,8 +144,6 @@ fn path_finder(current_node: usize,
                targets: &BTreeSet<usize>,
                visited: &mut FixedBitSet,
                paths: &mut Vec<FoundPath>) {
-    assert!(visited.contains(current_node));
-
     for &ni in neighborhood[current_node].iter() {
         if targets.contains(&ni) {
             // we found a target
@@ -153,13 +151,9 @@ fn path_finder(current_node: usize,
                 target_node: ni,
                 length: current_length,
             });
-        } else {
-            // the node ``ni`` is not a target node.
-            // let's see if we already have visited it.
-            if visited.contains(ni) {
-                // if we have, continue with next iteration
-                continue;
-            }
+        } else if !visited.contains(ni) {
+            // the node ``ni`` is not a target node and we haven't
+            // visited yet.
 
             // we haven't visited ```ni``` yet. recurse down
             visited.set(ni, true);
@@ -272,7 +266,6 @@ impl NodeGraph {
             };
 
             visited.clear();
-            visited.set(pnode, true);
             path_finder(pnode,
                         0.0,
                         &neighborhood,
