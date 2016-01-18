@@ -11,6 +11,7 @@ use std::mem;
 use std::io::{self, Write};
 use std::collections::{BTreeMap, BTreeSet};
 use fixedbitset::FixedBitSet;
+use std::cmp;
 
 #[derive(Debug, Clone)]
 struct Edge {
@@ -136,7 +137,7 @@ struct FoundPath {
     length: f32,
 }
 
-// Find all paths from current_node to connected nodes.
+// Find all paths from current_node to connected nodes (which length is > 0.0).
 fn path_finder(current_node: usize,
                current_length: f32,
                neighborhood: &Vec<Vec<usize>>,
@@ -147,10 +148,12 @@ fn path_finder(current_node: usize,
     for &ni in neighborhood[current_node].iter() {
         if targets.contains(&ni) {
             // we found a target
-            paths.push(FoundPath {
-                target_node: ni,
-                length: current_length,
-            });
+            if current_length > 0.0 {
+                paths.push(FoundPath {
+                    target_node: ni,
+                    length: current_length,
+                });
+            }
         } else if !visited.contains(ni) {
             // the node ``ni`` is not a target node and we haven't
             // visited yet.
@@ -184,6 +187,12 @@ struct StructuredGraph {
     nodes: BTreeMap<usize, StructuredNode>,
 }
 
+#[derive(Debug)]
+pub struct Graph {
+    pub nodes: Vec<(f32, u32)>,
+    pub edges: Vec<(u32, u32, f32)>,
+}
+
 impl NodeGraph {
     fn write_dot<W: Write>(&self, wr: &mut W) -> io::Result<()> {
         try!(writeln!(wr, "digraph artificial {{"));
@@ -208,7 +217,7 @@ impl NodeGraph {
         Ok(())
     }
 
-    fn into_structured_graph(&self, type_processing: usize) -> StructuredGraph {
+    fn into_structured_graph(&self) -> StructuredGraph {
         // determine max type_count.
         // lets say every type_count >= 3 is a neuron for now.
         // everything else is a synapse
@@ -219,6 +228,10 @@ impl NodeGraph {
         // a) Treat them as one big neuron
         // b) Connect them with a minimum synapse?
         // We do b) for now, because it's easier.
+
+        let max_type_count = self.nodes.iter().fold(0, |a, node| cmp::max(a, node.type_count));
+
+        let type_processing = cmp::max(1, (max_type_count * 3) / 4);
 
         let mut neighbors: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
         for &(src, dst) in self.edges.iter() {
@@ -282,6 +295,32 @@ impl NodeGraph {
 }
 
 impl StructuredGraph {
+    fn into_graph(self) -> Graph {
+        // map indices
+        let mut index_map: BTreeMap<usize, usize> = BTreeMap::new();
+
+        let mut graph = Graph {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        };
+
+        for (&i, node) in self.nodes.iter() {
+            let mapped_i = graph.nodes.len();
+            graph.nodes.push((node.length, node.type_count as u32));
+            index_map.insert(i, mapped_i);
+        }
+
+        for (i, node) in self.nodes.iter() {
+            let src = index_map[i];
+            for conn in node.connections.iter() {
+                let dst = index_map[&conn.target_node];
+                graph.edges.push((src as u32, dst as u32, conn.length));
+            }
+        }
+
+        graph
+    }
+
     fn write_dot<W: Write>(&self, wr: &mut W) -> io::Result<()> {
         try!(writeln!(wr, "digraph artificial {{"));
 
@@ -432,10 +471,8 @@ impl GraphBuilder {
     }
 }
 
-pub fn graph_from_base4_genome(genome: &Genome<Base4>, num_iterations: usize) {
+pub fn graph_from_base4_genome(genome: &Genome<Base4>, num_iterations: usize) -> Graph {
     use std::fs::File;
-
-    // let promoter = BaseString::<Base4>::from_str("0101").unwrap();
     let promoter = [B0, B1, B0, B1];
 
     let genes: Vec<_> = genome.iter_genes(&promoter, 4).collect();
@@ -457,7 +494,7 @@ pub fn graph_from_base4_genome(genome: &Genome<Base4>, num_iterations: usize) {
 
     let mut zygote = network.new_state();
     zygote.state.set(0, true);
-    // zygote.state.set(1, true);
+    //zygote.state.set(1, true);
 
     let mut gb = GraphBuilder::new(network, zygote);
     println!("{:#?}", gb);
@@ -471,15 +508,17 @@ pub fn graph_from_base4_genome(genome: &Genome<Base4>, num_iterations: usize) {
 
     let node_graph = gb.into_node_graph();
     node_graph.write_dot(&mut File::create("example1_node.dot").unwrap()).unwrap();
-    let g = node_graph.into_structured_graph(1);
+    let g = node_graph.into_structured_graph();
     println!("g: {:?}", g);
     g.write_dot(&mut File::create("example1_struct.dot").unwrap()).unwrap();
-}
 
+    g.into_graph()
+}
 
 fn main() {
     let mut rng = rand::thread_rng();
 
     let genome = Genome::<Base4>::random(&mut rng, 8 * 256);
-    graph_from_base4_genome(&genome, 5);
+    let graph = graph_from_base4_genome(&genome, 5);
+    println!("{:#?}", graph);
 }
