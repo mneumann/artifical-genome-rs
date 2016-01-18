@@ -3,11 +3,14 @@
 
 extern crate artificial_genome;
 extern crate rand;
+extern crate fixedbitset;
 
 use artificial_genome::{Genome, ProteinRegulator, GeneNetwork, GeneNetworkState};
 use artificial_genome::base4::{Base4, B0, B1};
 use std::mem;
 use std::io::{self, Write};
+use std::collections::{BTreeMap, BTreeSet};
+use fixedbitset::FixedBitSet;
 
 #[derive(Debug, Clone)]
 struct Edge {
@@ -119,12 +122,72 @@ impl Edge {
 
 struct NodeGraph {
     nodes: Vec<NodeInfo>,
-    edges: Vec<(usize, usize)>,
+    edges: BTreeSet<(usize, usize)>,
 }
 
 struct NodeInfo {
     length: f32,
     type_count: usize,
+}
+
+#[derive(Debug)]
+struct FoundPath {
+    target_node: usize,
+    length: f32,
+}
+
+// Find all paths from current_node to connected nodes.
+fn path_finder(current_node: usize,
+               current_length: f32,
+               neighborhood: &Vec<Vec<usize>>,
+               lengths: &Vec<f32>,
+               targets: &BTreeSet<usize>,
+               visited: &mut FixedBitSet,
+               paths: &mut Vec<FoundPath>) {
+    assert!(visited.contains(current_node));
+
+    for &ni in neighborhood[current_node].iter() {
+        if targets.contains(&ni) {
+            // we found a target
+            paths.push(FoundPath {
+                target_node: ni,
+                length: current_length,
+            });
+        } else {
+            // the node ``ni`` is not a target node.
+            // let's see if we already have visited it.
+            if visited.contains(ni) {
+                // if we have, continue with next iteration
+                continue;
+            }
+
+            // we haven't visited ```ni``` yet. recurse down
+            visited.set(ni, true);
+            path_finder(ni,
+                        current_length + lengths[ni],
+                        neighborhood,
+                        lengths,
+                        targets,
+                        visited,
+                        paths);
+            visited.set(ni, false);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct StructuredNode {
+    length: f32,
+    type_count: usize,
+    connections: Vec<FoundPath>,
+}
+
+// There are two types of nodes. Processing nodes (e.g. Neuron) or
+// connecting nodes (e.g. Synapses). Keep the processing nodes as
+// nodes in the graph, while the connecting nodes become edges.
+#[derive(Debug)]
+struct StructuredGraph {
+    nodes: BTreeMap<usize, StructuredNode>,
 }
 
 impl NodeGraph {
@@ -144,6 +207,114 @@ impl NodeGraph {
         // now connect them
         for &(src_edge, dst_edge) in self.edges.iter() {
             try!(writeln!(wr, "{} -> {}", src_edge, dst_edge));
+        }
+
+        try!(writeln!(wr, "}}"));
+
+        Ok(())
+    }
+
+    fn into_structured_graph(&self, type_processing: usize) -> StructuredGraph {
+        // determine max type_count.
+        // lets say every type_count >= 3 is a neuron for now.
+        // everything else is a synapse
+        // If two synapses are directly connected to each other,
+        // treat them as one synapse with the summation of it's lengths.
+        // XXX: remove synapses which are too long.
+        // If two neurons are next to each other, what to do?
+        // a) Treat them as one big neuron
+        // b) Connect them with a minimum synapse?
+        // We do b) for now, because it's easier.
+
+        let mut neighbors: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+        for &(src, dst) in self.edges.iter() {
+            neighbors.entry(src).or_insert_with(|| BTreeSet::new()).insert(dst);
+        }
+
+        let mut processing_nodes: BTreeSet<usize> = BTreeSet::new();
+
+        for (i, node) in self.nodes.iter().enumerate() {
+            if node.type_count >= type_processing {
+                processing_nodes.insert(i);
+            }
+        }
+
+        let neighborhood: Vec<Vec<usize>> = self.nodes
+                                                .iter()
+                                                .enumerate()
+                                                .map(|(i, _)| {
+                                                    neighbors.get(&i)
+                                                             .map(|v| v.iter().cloned().collect())
+                                                             .unwrap_or(Vec::new())
+                                                })
+                                                .collect();
+
+        let lengths: Vec<f32> = self.nodes
+                                    .iter()
+                                    .map(|n| n.length)
+                                    .collect();
+
+        // now follow all possible directed paths from each processing_node, until
+        // we arrive at another processing_node.
+        // (Or repetetively merge consecutive elements which have same type).
+
+        let mut visited = FixedBitSet::with_capacity(self.nodes.len());
+
+        let mut g = StructuredGraph { nodes: BTreeMap::new() };
+
+        for &pnode in processing_nodes.iter() {
+            // find all processing elements connected either directly or through intermediate
+            // synapses.
+            let mut snode = StructuredNode {
+                length: self.nodes[pnode].length,
+                type_count: self.nodes[pnode].type_count,
+                connections: Vec::new(),
+            };
+
+            visited.clear();
+            visited.set(pnode, true);
+            path_finder(pnode,
+                        0.0,
+                        &neighborhood,
+                        &lengths,
+                        &processing_nodes,
+                        &mut visited,
+                        &mut snode.connections);
+
+            g.nodes.insert(pnode, snode);
+        }
+
+        g
+    }
+}
+
+impl StructuredGraph {
+    fn write_dot<W: Write>(&self, wr: &mut W) -> io::Result<()> {
+        try!(writeln!(wr, "digraph artificial {{"));
+
+        for (&i, node) in self.nodes.iter() {
+            try!(writeln!(wr,
+                          "{} [label=\"{} {:.2} {}\"]",
+                          i,
+                          i,
+                          node.length,
+                          node.type_count));
+        }
+
+        // now connect them
+        for (src, node) in self.nodes.iter() {
+            for dst in node.connections.iter() {
+                if dst.length == 0.0 {
+                    // XXX
+                    continue;
+                }
+                try!(writeln!(wr,
+                              "{} -> {} [weight={} label=\"{}\"]",
+                              src,
+                              dst.target_node,
+                              dst.length,
+                              dst.length));
+            }
         }
 
         try!(writeln!(wr, "}}"));
@@ -200,7 +371,7 @@ impl GraphBuilder {
                                                      .collect();
         let mut node_graph = NodeGraph {
             nodes: Vec::with_capacity(self.edges.len()),
-            edges: Vec::new(),
+            edges: BTreeSet::new(),
         };
 
         // every edge becomes a node.
@@ -231,11 +402,11 @@ impl GraphBuilder {
             //
 
             for &out_i in node_out_edges[edge.dst_node].iter() {
-                node_graph.edges.push((i, out_i));
+                node_graph.edges.insert((i, out_i));
             }
             // connect i with all incoming edges of src_node
             for &in_i in node_in_edges[edge.src_node].iter() {
-                node_graph.edges.push((in_i, i));
+                node_graph.edges.insert((in_i, i));
             }
         }
 
@@ -248,9 +419,10 @@ impl GraphBuilder {
 
         for edge in self.edges.iter() {
             try!(writeln!(wr,
-                          "{} -> {} [weight={} label=\"{}\"]",
+                          "{} -> {} [weight={} label=\"{} / {}\"]",
                           edge.src_node,
                           edge.dst_node,
+                          edge.length,
                           edge.length,
                           edge.type_count));
         }
@@ -269,7 +441,7 @@ fn main() {
     // W:3213 121...")
     let mut rng = rand::thread_rng();
 
-    let genome = Genome::<Base4>::random(&mut rng, 5 * 256);
+    let genome = Genome::<Base4>::random(&mut rng, 10 * 256);
 
     // let promoter = BaseString::<Base4>::from_str("0101").unwrap();
     let promoter = [B0, B1, B0, B1];
@@ -298,13 +470,16 @@ fn main() {
     let mut gb = GraphBuilder::new(network, zygote);
     println!("{:#?}", gb);
 
-    for _ in 0..3 {
+    for _ in 0..5 {
         gb.next();
     }
     println!("{:#?}", gb);
 
-    // gb.write_dot(&mut File::create("example1.dot").unwrap());
+    gb.write_dot(&mut File::create("example1.dot").unwrap()).unwrap();
 
     let node_graph = gb.into_node_graph();
     node_graph.write_dot(&mut File::create("example1_node.dot").unwrap()).unwrap();
+    let g = node_graph.into_structured_graph(1);
+    println!("g: {:?}", g);
+    g.write_dot(&mut File::create("example1_struct.dot").unwrap()).unwrap();
 }
