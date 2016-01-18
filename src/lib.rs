@@ -3,6 +3,7 @@ extern crate rand;
 
 pub mod dna_base;
 pub mod base4;
+pub mod graph;
 
 use std::str::FromStr;
 use std::ops::Deref;
