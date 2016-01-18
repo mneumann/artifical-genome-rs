@@ -432,14 +432,8 @@ impl GraphBuilder {
     }
 }
 
-
-fn main() {
+pub fn graph_from_base4_genome(genome: &Genome<Base4>, num_iterations: usize) {
     use std::fs::File;
-    // let genome = Genome::<Base4>::from_str("...11 _0320_23 <0101> T:0311 2...3 _1022_ 133 <0101> \
-    // W:3213 121...")
-    let mut rng = rand::thread_rng();
-
-    let genome = Genome::<Base4>::random(&mut rng, 10 * 256);
 
     // let promoter = BaseString::<Base4>::from_str("0101").unwrap();
     let promoter = [B0, B1, B0, B1];
@@ -468,7 +462,7 @@ fn main() {
     let mut gb = GraphBuilder::new(network, zygote);
     println!("{:#?}", gb);
 
-    for _ in 0..5 {
+    for _ in 0..num_iterations {
         gb.next();
     }
     println!("{:#?}", gb);
@@ -480,4 +474,12 @@ fn main() {
     let g = node_graph.into_structured_graph(1);
     println!("g: {:?}", g);
     g.write_dot(&mut File::create("example1_struct.dot").unwrap()).unwrap();
+}
+
+
+fn main() {
+    let mut rng = rand::thread_rng();
+
+    let genome = Genome::<Base4>::random(&mut rng, 8 * 256);
+    graph_from_base4_genome(&genome, 5);
 }
