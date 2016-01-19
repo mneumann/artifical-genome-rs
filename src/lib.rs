@@ -162,7 +162,7 @@ impl<B: Base> BaseString<B> {
 
 
 /// A Genome is a string of Base
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Genome<B: Base> {
     genome: BaseString<B>,
 }
