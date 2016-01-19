@@ -169,11 +169,7 @@ pub struct Genome<B: Base> {
 
 impl<B: Base> Genome<B> {
     pub fn from_vec(v: Vec<B>) -> Genome<B> {
-        Genome {
-            genome: BaseString {
-                v: v
-            }
-        }
+        Genome { genome: BaseString { v: v } }
     }
 
     pub fn random<R: Rng>(rng: &mut R, n: usize) -> Genome<B> {
@@ -272,11 +268,15 @@ impl<B: Base> Genome<B> {
                                 promoter: &[B],
                                 length_of_gene: usize,
                                 protein_regulation: &F)
-                                -> GeneNetwork
+                                -> Option<GeneNetwork>
         where F: Fn(&[B]) -> ProteinRegulator
     {
         let genes: Vec<_> = self.iter_genes(promoter, length_of_gene).collect();
         let num_genes = genes.len();
+
+        if num_genes == 0 {
+            return None;
+        }
 
         // each gene is a node in the boolean network
         let mut network = GeneNetwork::new(num_genes);
@@ -299,7 +299,7 @@ impl<B: Base> Genome<B> {
             }
         }
 
-        return network;
+        return Some(network);
     }
 }
 

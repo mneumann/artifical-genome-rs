@@ -464,11 +464,11 @@ impl GraphBuilder {
     }
 }
 
-pub fn graph_from_base4_genome(genome: &Genome<Base4>, num_iterations: usize) -> Graph {
+pub fn graph_from_base4_genome(genome: &Genome<Base4>, num_iterations: usize) -> Option<Graph> {
     // use std::fs::File;
     let promoter = [B0, B1, B0, B1];
 
-    let genes: Vec<_> = genome.iter_genes(&promoter, 4).collect();
+    // let genes: Vec<_> = genome.iter_genes(&promoter, 4).collect();
     // println!("{:?}", genes);
 
     let network = genome.construct_network(&promoter,
@@ -482,6 +482,13 @@ pub fn graph_from_base4_genome(genome: &Genome<Base4>, num_iterations: usize) ->
                                                    ProteinRegulator::enhance()
                                                }
                                            });
+
+    let network = if let Some(n) = network {
+        n
+    } else {
+        return None;
+    };
+
 
     // println!("{:#?}", network);
 
@@ -505,5 +512,5 @@ pub fn graph_from_base4_genome(genome: &Genome<Base4>, num_iterations: usize) ->
     // println!("g: {:?}", g);
     // g.write_dot(&mut File::create("example1_struct.dot").unwrap()).unwrap();
 
-    g.into_graph()
+    Some(g.into_graph())
 }
