@@ -168,8 +168,24 @@ pub struct Genome<B: Base> {
 }
 
 impl<B: Base> Genome<B> {
+    pub fn from_vec(v: Vec<B>) -> Genome<B> {
+        Genome {
+            genome: BaseString {
+                v: v
+            }
+        }
+    }
+
     pub fn random<R: Rng>(rng: &mut R, n: usize) -> Genome<B> {
         Genome { genome: BaseString::random(rng, n) }
+    }
+}
+
+impl<B: Base> Deref for Genome<B> {
+    type Target = [B];
+
+    fn deref(&self) -> &Self::Target {
+        &self.genome
     }
 }
 
