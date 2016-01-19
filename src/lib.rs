@@ -123,6 +123,7 @@ impl ProteinRegulator {
     }
 }
 
+#[derive(Clone)]
 pub struct BaseString<B: Base> {
     v: Vec<B>,
 }
@@ -161,6 +162,7 @@ impl<B: Base> BaseString<B> {
 
 
 /// A Genome is a string of Base
+#[derive(Clone)]
 pub struct Genome<B: Base> {
     genome: BaseString<B>,
 }
